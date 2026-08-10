@@ -25,11 +25,25 @@ const FORUM_CHANNEL_ID = "1535400287248851144";
 const ANONYMOUS_AVATAR = path.join(__dirname, "anonymous.png");
 const WEBHOOK_NAME = "Anonmata Anonymous";
 
+// Stores anonymous identities per forum thread.
+//
+// Structure:
+// threadId => {
+//     userId => anonymousNumber
+// }
+//
+// Example:
+// "123thread" => {
+//     "userA": 1,
+//     "userB": 2
+// }
+const anonymousUsers = new Map();
+
 client.once(Events.ClientReady, (readyClient) => {
     console.log(`Anonmata is online as ${readyClient.user.tag}!`);
 });
 
-// Add the anonymous-answer button to new posts
+// Add anonymous button to every new Forum post
 client.on(Events.ThreadCreate, async (thread) => {
     try {
         if (thread.parentId !== FORUM_CHANNEL_ID) return;
@@ -58,8 +72,9 @@ client.on(Events.ThreadCreate, async (thread) => {
 
 client.on(Events.InteractionCreate, async (interaction) => {
 
-    // Handle anonymous-answer button
+    // Anonymous button clicked
     if (interaction.isButton()) {
+
         if (!interaction.customId.startsWith("anonymous_")) return;
 
         const threadId =
@@ -87,8 +102,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
         return;
     }
 
-    // Handle submitted anonymous answer
+    // Anonymous answer submitted
     if (interaction.isModalSubmit()) {
+
         if (!interaction.customId.startsWith("answer_")) return;
 
         const threadId =
@@ -112,7 +128,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 return;
             }
 
-            // Make sure this really belongs to the correct Forum
             if (thread.parentId !== FORUM_CHANNEL_ID) {
                 await interaction.reply({
                     content: "❌ This isn't a valid anonymous-answer post.",
@@ -122,14 +137,38 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 return;
             }
 
+            /*
+             * Assign anonymous number
+             */
+
+            if (!anonymousUsers.has(threadId)) {
+                anonymousUsers.set(threadId, new Map());
+            }
+
+            const threadUsers =
+                anonymousUsers.get(threadId);
+
+            let anonymousNumber =
+                threadUsers.get(interaction.user.id);
+
+            // First anonymous submission from this user
+            // in this question
+            if (!anonymousNumber) {
+                anonymousNumber = threadUsers.size + 1;
+
+                threadUsers.set(
+                    interaction.user.id,
+                    anonymousNumber
+                );
+
+                console.log(
+                    `Assigned Anonymous #${anonymousNumber} in ${thread.name}`
+                );
+            }
+
             const forumChannel =
                 await client.channels.fetch(FORUM_CHANNEL_ID);
 
-            if (!forumChannel) {
-                throw new Error("Forum channel could not be found.");
-            }
-
-            // Find existing anonymous webhook
             const webhooks =
                 await forumChannel.fetchWebhooks();
 
@@ -140,36 +179,39 @@ client.on(Events.InteractionCreate, async (interaction) => {
                         hook.owner?.id === client.user.id
                 );
 
-            // Create it if necessary
             if (!webhook) {
-                webhook = await forumChannel.createWebhook({
-                    name: WEBHOOK_NAME,
-                    avatar: ANONYMOUS_AVATAR
-                });
+                webhook =
+                    await forumChannel.createWebhook({
+                        name: WEBHOOK_NAME,
+                        avatar: ANONYMOUS_AVATAR
+                    });
 
                 console.log("Created anonymous webhook.");
             }
 
-            // Post the anonymous answer
+            // Send answer
             await webhook.send({
                 content: answer,
-                username: "Anonymous",
+
+                // Each anonymous user gets their own visible number
+                username: `Anonymous #${anonymousNumber}`,
+
                 threadId: thread.id,
 
-                // Prevent anonymous submissions from pinging
-                // users, roles, or @everyone.
+                // Prevent anonymous answers from pinging anyone
                 allowedMentions: {
                     parse: []
                 }
             });
 
             await interaction.reply({
-                content: "✅ Your anonymous answer has been posted!",
+                content:
+                    `✅ Posted as Anonymous #${anonymousNumber}!`,
                 flags: MessageFlags.Ephemeral
             });
 
             console.log(
-                `Anonymous answer posted in: ${thread.name}`
+                `Anonymous #${anonymousNumber} posted in: ${thread.name}`
             );
 
         } catch (error) {
