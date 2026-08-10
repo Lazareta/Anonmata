@@ -34,24 +34,14 @@ const client = new Client({
 // ======================================================
 
 const FORUM_CHANNEL_ID = "1535400287248851144";
-
-const ANONYMOUS_AVATAR =
-    path.join(__dirname, "anonymous.png");
-
+const ANONYMOUS_AVATAR = path.join(__dirname, "anonymous.png");
 const WEBHOOK_NAME = "Anonmata Anonymous";
+const NORMAL_REPLY_COMMAND = "Reply Anonymously";
 
-const NORMAL_REPLY_COMMAND =
-    "Reply Anonymously";
-
-// Railway persistent volume.
-// Locally, use a normal file in the project folder.
 const DATA_FILE =
     process.env.RAILWAY_ENVIRONMENT
         ? "/data/anonymous-users.json"
-        : path.join(
-            __dirname,
-            "anonymous-users.json"
-        );
+        : path.join(__dirname, "anonymous-users.json");
 
 // ======================================================
 // PERSISTENT ANONYMOUS IDENTITIES
@@ -61,105 +51,63 @@ let anonymousData = {};
 
 function loadAnonymousData() {
     try {
-
         if (fs.existsSync(DATA_FILE)) {
-
             anonymousData = JSON.parse(
-                fs.readFileSync(
-                    DATA_FILE,
-                    "utf8"
-                )
+                fs.readFileSync(DATA_FILE, "utf8")
             );
 
             console.log(
                 `Loaded anonymous identities from ${DATA_FILE}`
             );
-
         } else {
-
             anonymousData = {};
-
-            console.log(
-                "No anonymous database yet."
-            );
+            console.log("No anonymous database yet.");
         }
-
     } catch (error) {
-
-        console.error(
-            "Could not load anonymous database:"
-        );
-
+        console.error("Could not load anonymous database:");
         console.error(error);
-
         anonymousData = {};
     }
 }
 
 function saveAnonymousData() {
     try {
-
-        const directory =
-            path.dirname(DATA_FILE);
+        const directory = path.dirname(DATA_FILE);
 
         if (!fs.existsSync(directory)) {
-            fs.mkdirSync(
-                directory,
-                {
-                    recursive: true
-                }
-            );
+            fs.mkdirSync(directory, {
+                recursive: true
+            });
         }
 
         fs.writeFileSync(
             DATA_FILE,
-            JSON.stringify(
-                anonymousData,
-                null,
-                2
-            ),
+            JSON.stringify(anonymousData, null, 2),
             "utf8"
         );
-
     } catch (error) {
-
-        console.error(
-            "Could not save anonymous database:"
-        );
-
+        console.error("Could not save anonymous database:");
         console.error(error);
     }
 }
 
-function getAnonymousNumber(
-    threadId,
-    userId
-) {
-
-    // Create storage for this question
+function getAnonymousNumber(threadId, userId) {
     if (!anonymousData[threadId]) {
-
         anonymousData[threadId] = {
             users: {},
             nextNumber: 1
         };
     }
 
-    const threadData =
-        anonymousData[threadId];
+    const threadData = anonymousData[threadId];
 
-    // User already has an anonymous identity
     if (threadData.users[userId]) {
         return threadData.users[userId];
     }
 
-    // Assign new anonymous number
-    const number =
-        threadData.nextNumber;
+    const number = threadData.nextNumber;
 
-    threadData.users[userId] =
-        number;
-
+    threadData.users[userId] = number;
     threadData.nextNumber += 1;
 
     saveAnonymousData();
@@ -168,35 +116,51 @@ function getAnonymousNumber(
 }
 
 // ======================================================
-// REPLY EXCERPT CLEANUP
+// EXCERPT CLEANUP
 // ======================================================
 
 function makeExcerpt(content) {
-
     if (!content) {
         return "message";
     }
 
-    let lines =
-        content.split("\n");
+    let cleanContent = content;
 
     /*
-     * NEW reply format:
-     *
-     * > quoted text
-     * from **Anonymous #2**
+     * New reply format:
      *
      * actual answer
      *
-     * Remove the quote metadata so replies-to-replies
-     * only quote the actual answer.
+     * ↳ replying to Laz: “original”
+     *
+     * Remove the footer before using this message
+     * as a quote in another anonymous reply.
      */
+
+    const footerIndex = cleanContent.lastIndexOf(
+        "\n\n↳ *replying to "
+    );
+
+    if (footerIndex !== -1) {
+        cleanContent =
+            cleanContent.slice(0, footerIndex);
+    }
+
+    /*
+     * Support older reply format:
+     *
+     * > quoted text
+     * from Name
+     *
+     * answer
+     */
+
+    let lines = cleanContent.split("\n");
 
     if (
         lines.length >= 2 &&
         lines[0].startsWith("> ")
     ) {
-
         lines.shift();
 
         if (
@@ -206,28 +170,30 @@ function makeExcerpt(content) {
             lines.shift();
         }
 
-        // Remove blank lines after the reply header
         while (
             lines.length > 0 &&
             lines[0].trim() === ""
         ) {
             lines.shift();
         }
+
+        cleanContent = lines.join("\n");
     }
 
     /*
-     * Support messages created by the older version:
+     * Support even older format:
      *
      * **Anonymous #2 — “message”**
      * answer
      */
+
+    lines = cleanContent.split("\n");
 
     if (
         lines.length > 1 &&
         lines[0].startsWith("**") &&
         lines[0].endsWith("**")
     ) {
-
         lines.shift();
 
         while (
@@ -236,12 +202,10 @@ function makeExcerpt(content) {
         ) {
             lines.shift();
         }
+
+        cleanContent = lines.join("\n");
     }
 
-    let cleanContent =
-        lines.join("\n");
-
-    // Remove markdown that could break our quote formatting
     cleanContent = cleanContent
         .replace(/\*\*/g, "")
         .replace(/__/g, "")
@@ -256,22 +220,15 @@ function makeExcerpt(content) {
 
     const maxLength = 70;
 
-    if (
-        cleanContent.length <=
-        maxLength
-    ) {
+    if (cleanContent.length <= maxLength) {
         return cleanContent;
     }
 
     return (
-        cleanContent.slice(
-            0,
-            maxLength - 3
-        ) + "..."
+        cleanContent.slice(0, maxLength - 3) + "..."
     );
 }
 
-// Load database immediately
 loadAnonymousData();
 
 // ======================================================
@@ -279,16 +236,11 @@ loadAnonymousData();
 // ======================================================
 
 async function ensureContextMenuCommand() {
-
     try {
-
         const forumChannel =
-            await client.channels.fetch(
-                FORUM_CHANNEL_ID
-            );
+            await client.channels.fetch(FORUM_CHANNEL_ID);
 
-        const guild =
-            forumChannel.guild;
+        const guild = forumChannel.guild;
 
         const commands =
             await guild.commands.fetch();
@@ -296,44 +248,30 @@ async function ensureContextMenuCommand() {
         const existing =
             commands.find(
                 command =>
-                    command.name ===
-                        NORMAL_REPLY_COMMAND &&
-                    command.type ===
-                        ApplicationCommandType.Message
+                    command.name === NORMAL_REPLY_COMMAND &&
+                    command.type === ApplicationCommandType.Message
             );
 
         if (existing) {
-
             console.log(
                 `"${NORMAL_REPLY_COMMAND}" command already registered.`
             );
-
             return;
         }
 
         const command =
             new ContextMenuCommandBuilder()
-                .setName(
-                    NORMAL_REPLY_COMMAND
-                )
-                .setType(
-                    ApplicationCommandType.Message
-                );
+                .setName(NORMAL_REPLY_COMMAND)
+                .setType(ApplicationCommandType.Message);
 
-        await guild.commands.create(
-            command
-        );
+        await guild.commands.create(command);
 
         console.log(
             `Registered "${NORMAL_REPLY_COMMAND}" context command.`
         );
 
     } catch (error) {
-
-        console.error(
-            "Could not register context command:"
-        );
-
+        console.error("Could not register context command:");
         console.error(error);
     }
 }
@@ -359,7 +297,7 @@ client.once(
 );
 
 // ======================================================
-// NEW FORUM QUESTION
+// NEW FORUM POST
 // ======================================================
 
 client.on(
@@ -367,7 +305,6 @@ client.on(
     async (thread) => {
 
         try {
-
             if (
                 thread.parentId !==
                 FORUM_CHANNEL_ID
@@ -405,11 +342,9 @@ client.on(
             );
 
         } catch (error) {
-
             console.error(
                 "Error adding anonymous button:"
             );
-
             console.error(error);
         }
     }
@@ -423,17 +358,16 @@ client.on(
     Events.InteractionCreate,
     async (interaction) => {
 
-        // ==================================================
+        // --------------------------------------------------
         // RIGHT CLICK NORMAL MESSAGE
         // Apps -> Reply Anonymously
-        // ==================================================
+        // --------------------------------------------------
 
         if (
             interaction.isMessageContextMenuCommand() &&
             interaction.commandName ===
                 NORMAL_REPLY_COMMAND
         ) {
-
             const target =
                 interaction.targetMessage;
 
@@ -445,7 +379,6 @@ client.on(
                 thread.parentId !==
                     FORUM_CHANNEL_ID
             ) {
-
                 await interaction.reply({
                     content:
                         "❌ Anonymous replies can only be used inside the psychology forum.",
@@ -456,10 +389,7 @@ client.on(
                 return;
             }
 
-            // Anonymous webhook messages already have
-            // their own Reply Anonymously button.
             if (target.webhookId) {
-
                 await interaction.reply({
                     content:
                         "ℹ️ Use the **Reply Anonymously** button underneath anonymous messages.",
@@ -511,9 +441,9 @@ client.on(
             return;
         }
 
-        // ==================================================
+        // --------------------------------------------------
         // ANSWER ANONYMOUSLY BUTTON
-        // ==================================================
+        // --------------------------------------------------
 
         if (
             interaction.isButton() &&
@@ -521,7 +451,6 @@ client.on(
                 "anonymous_"
             )
         ) {
-
             const threadId =
                 interaction.customId.replace(
                     "anonymous_",
@@ -569,9 +498,9 @@ client.on(
             return;
         }
 
-        // ==================================================
-        // REPLY TO ANONYMOUS MESSAGE BUTTON
-        // ==================================================
+        // --------------------------------------------------
+        // REPLY TO ANONYMOUS MESSAGE
+        // --------------------------------------------------
 
         if (
             interaction.isButton() &&
@@ -579,7 +508,6 @@ client.on(
                 "anonreply_"
             )
         ) {
-
             const parts =
                 interaction.customId.split("_");
 
@@ -633,9 +561,9 @@ client.on(
             return;
         }
 
-        // ==================================================
+        // --------------------------------------------------
         // NORMAL ANONYMOUS ANSWER
-        // ==================================================
+        // --------------------------------------------------
 
         if (
             interaction.isModalSubmit() &&
@@ -643,7 +571,6 @@ client.on(
                 "answer_"
             )
         ) {
-
             const threadId =
                 interaction.customId.replace(
                     "answer_",
@@ -669,9 +596,9 @@ client.on(
             return;
         }
 
-        // ==================================================
+        // --------------------------------------------------
         // ANONYMOUS -> ANONYMOUS REPLY
-        // ==================================================
+        // --------------------------------------------------
 
         if (
             interaction.isModalSubmit() &&
@@ -679,7 +606,6 @@ client.on(
                 "replysubmit_"
             )
         ) {
-
             const parts =
                 interaction.customId.split("_");
 
@@ -700,7 +626,6 @@ client.on(
                     .trim();
 
             try {
-
                 const thread =
                     await client.channels.fetch(
                         threadId
@@ -728,11 +653,9 @@ client.on(
                 });
 
             } catch (error) {
-
                 console.error(
                     "Could not find anonymous target message:"
                 );
-
                 console.error(error);
 
                 await interaction.reply({
@@ -746,9 +669,9 @@ client.on(
             return;
         }
 
-        // ==================================================
+        // --------------------------------------------------
         // ANONYMOUS -> NORMAL USER REPLY
-        // ==================================================
+        // --------------------------------------------------
 
         if (
             interaction.isModalSubmit() &&
@@ -756,7 +679,6 @@ client.on(
                 "normalreply_"
             )
         ) {
-
             const parts =
                 interaction.customId.split("_");
 
@@ -774,7 +696,6 @@ client.on(
                     .trim();
 
             try {
-
                 const thread =
                     await client.channels.fetch(
                         threadId
@@ -786,7 +707,6 @@ client.on(
                     thread.parentId !==
                         FORUM_CHANNEL_ID
                 ) {
-
                     await interaction.reply({
                         content:
                             "❌ I couldn't find that Forum post.",
@@ -827,11 +747,9 @@ client.on(
                 });
 
             } catch (error) {
-
                 console.error(
                     "Could not find target message:"
                 );
-
                 console.error(error);
 
                 await interaction.reply({
@@ -859,9 +777,7 @@ async function postAnonymousMessage({
     replyExcerpt,
     targetMessageId
 }) {
-
     try {
-
         const thread =
             await client.channels.fetch(
                 threadId
@@ -871,7 +787,6 @@ async function postAnonymousMessage({
             !thread ||
             !thread.isThread()
         ) {
-
             await interaction.reply({
                 content:
                     "❌ I couldn't find that question.",
@@ -886,7 +801,6 @@ async function postAnonymousMessage({
             thread.parentId !==
             FORUM_CHANNEL_ID
         ) {
-
             await interaction.reply({
                 content:
                     "❌ This isn't a valid anonymous-answer post.",
@@ -897,16 +811,11 @@ async function postAnonymousMessage({
             return;
         }
 
-        // Persistent anonymous number
         const anonymousNumber =
             getAnonymousNumber(
                 threadId,
                 interaction.user.id
             );
-
-        // ==================================================
-        // FIND / CREATE WEBHOOK
-        // ==================================================
 
         const forumChannel =
             await client.channels.fetch(
@@ -926,7 +835,6 @@ async function postAnonymousMessage({
             );
 
         if (!webhook) {
-
             webhook =
                 await forumChannel.createWebhook({
                     name:
@@ -941,30 +849,27 @@ async function postAnonymousMessage({
         }
 
         // ==================================================
-        // BUILD MESSAGE
+        // BUILD CLEAN REPLY
         // ==================================================
 
         let messageContent =
             content;
 
         /*
-         * Reply style:
+         * New format:
          *
-         * > hello world
-         * from Laz
+         * actual anonymous message
          *
-         * anonymous response
+         * ↳ replying to Laz: “hello world”
          */
 
         if (
             replyLabel &&
             replyExcerpt
         ) {
-
             messageContent =
-                `> ${escapeMarkdown(replyExcerpt)}\n` +
-                `from **${replyLabel}**\n\n` +
-                `${content}`;
+                `${content}\n\n` +
+                `↳ *replying to ${replyLabel}: “${escapeMarkdown(replyExcerpt)}”*`;
         }
 
         // ==================================================
@@ -991,7 +896,7 @@ async function postAnonymousMessage({
             });
 
         // ==================================================
-        // ADD TEXT-ONLY REPLY BUTTON
+        // REPLY BUTTON
         // ==================================================
 
         const replyButton =
@@ -1006,20 +911,18 @@ async function postAnonymousMessage({
                     ButtonStyle.Secondary
                 );
 
-        const replyRow =
-            new ActionRowBuilder()
-                .addComponents(
-                    replyButton
-                );
-
         await webhook.editMessage(
             postedMessage.id,
             {
                 threadId:
                     thread.id,
 
-                components:
-                    [replyRow],
+                components: [
+                    new ActionRowBuilder()
+                        .addComponents(
+                            replyButton
+                        )
+                ],
 
                 allowedMentions: {
                     parse: []
@@ -1028,7 +931,7 @@ async function postAnonymousMessage({
         );
 
         // ==================================================
-        // PRIVATE RAILWAY MODERATION LOG
+        // PRIVATE RAILWAY LOG
         // ==================================================
 
         console.log(
@@ -1056,7 +959,6 @@ async function postAnonymousMessage({
         );
 
         if (replyLabel) {
-
             console.log(
                 `Replying to: ${replyLabel}`
             );
@@ -1074,10 +976,6 @@ async function postAnonymousMessage({
             "======================================="
         );
 
-        // ==================================================
-        // PRIVATE CONFIRMATION
-        // ==================================================
-
         await interaction.reply({
             content:
                 `✅ Posted as Anonymous #${anonymousNumber}!`,
@@ -1086,20 +984,16 @@ async function postAnonymousMessage({
         });
 
     } catch (error) {
-
         console.error(
             "Error posting anonymous message:"
         );
-
         console.error(error);
 
         try {
-
             if (
                 !interaction.replied &&
                 !interaction.deferred
             ) {
-
                 await interaction.reply({
                     content:
                         "❌ Something went wrong while posting your answer.",
@@ -1107,13 +1001,10 @@ async function postAnonymousMessage({
                         MessageFlags.Ephemeral
                 });
             }
-
         } catch (replyError) {
-
             console.error(
                 "Could not send error response:"
             );
-
             console.error(replyError);
         }
     }
