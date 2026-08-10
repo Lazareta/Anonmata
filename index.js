@@ -111,19 +111,41 @@ function getAnonymousNumber(threadId, userId) {
 function makeExcerpt(content) {
     if (!content) return "message";
 
-    const singleLine = content
+    let cleanContent = content;
+
+    // Anonymous replies have:
+    // **Name — “quoted message”**
+    // actual reply
+    //
+    // Remove that first line so nested replies only quote
+    // the actual response.
+    const lines = cleanContent.split("\n");
+
+    if (
+        lines.length > 1 &&
+        lines[0].startsWith("**") &&
+        lines[0].endsWith("**")
+    ) {
+        cleanContent = lines.slice(1).join("\n");
+    }
+
+    // Remove Discord markdown that could mess up the quote
+    cleanContent = cleanContent
+        .replace(/\*\*/g, "")
+        .replace(/__/g, "")
+        .replace(/~~/g, "")
+        .replace(/`/g, "")
         .replace(/\s+/g, " ")
         .trim();
 
     const maxLength = 70;
 
-    if (singleLine.length <= maxLength) {
-        return singleLine;
+    if (cleanContent.length <= maxLength) {
+        return cleanContent;
     }
 
-    return singleLine.slice(0, maxLength - 3) + "...";
+    return cleanContent.slice(0, maxLength - 3) + "...";
 }
-
 loadAnonymousData();
 
 async function ensureContextMenuCommand() {
